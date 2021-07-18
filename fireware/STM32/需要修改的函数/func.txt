@@ -1,0 +1,162 @@
+int16_t get_fan_tar_pos(void)
+{
+    static int16_t now_pos = 0;
+    static uint8_t cur_dir = 1;
+    
+    int pos = 0;
+    
+    g_encode_pos = (LL_TIM_GetCounter(ENCODER_M1.TIMx) + (int32_t)(g_encode_over * 4000));
+    
+    if(pPosSpeed < 1)pPosSpeed = 1;
+    if(pPosSpeed > 10)pPosSpeed = 10;
+    
+    if(cur_dir == 1)
+    {
+        if(g_encode_pos < pPosInit + pPosRange)
+        {
+            pos = pPosSpeed;
+        }
+        else
+        {
+            cur_dir = 2;
+        }
+    }
+    else
+    {
+        if(g_encode_pos > pPosInit)
+        {
+            pos = - pPosSpeed;
+        }
+        else
+        {
+            cur_dir = 1;
+        }
+    }
+    return pos;
+}
+
+__weak void FOC_CalcCurrRef(uint8_t bMotor)
+{
+
+    /* USER CODE BEGIN FOC_CalcCurrRef 0 */
+
+    /* USER CODE END FOC_CalcCurrRef 0 */
+    if(FOCVars[bMotor].bDriveInput == INTERNAL)
+    {
+        FOCVars[bMotor].hTeref = STC_CalcTorqueReference(pSTC[bMotor]);
+        FOCVars[bMotor].Iqdref.q = FOCVars[bMotor].hTeref;
+    }
+    /* USER CODE BEGIN FOC_CalcCurrRef 1 */
+    else
+    {
+        g_encode_pos = (LL_TIM_GetCounter(ENCODER_M1.TIMx) + (int32_t)(g_encode_over * 4000));
+        //printf("%d\r\n",g_encode_pos);
+        tar_pos += get_fan_tar_pos();
+        mhError = tar_pos - g_encode_pos;
+        
+        //tar_pos += calc_local() * 8;
+        mhTorqueReference = PID_Controller(&PIDPosHandle_M1,(int32_t)mhError);
+        //printf("pos:%5d error:%d\r\n",g_encode_pos,mhError);
+        FOCVars[bMotor].hTeref = mhTorqueReference;
+        FOCVars[bMotor].Iqdref.q = FOCVars[bMotor].hTeref;
+        FOCVars[bMotor].Iqdref.d = 1000;
+    }
+    /* USER CODE END FOC_CalcCurrRef 1 */
+}
+
+void * ENC_IRQHandler( void * pHandleVoid )
+{
+    ENCODER_Handle_t * pHandle = ( ENCODER_Handle_t * ) pHandleVoid;
+
+    /*Updates the number of overflows occurred*/
+    /* the handling of overflow error is done in ENC_CalcAvrgMecSpeedUnit */
+    pHandle->TimerOverflowNb += 1u;
+    if(LL_TIM_GetDirection( pHandle->TIMx ) == LL_TIM_COUNTERDIRECTION_UP)
+    {
+        g_encode_over ++;
+    }
+    else
+    {
+        g_encode_over --;
+    }
+    return MC_NULL;
+}
+
+typedef struct
+{
+    ***忽略***
+    PID_Handle_t * pPIDPosition;
+    int16_t * pPosInit;
+    int16_t * pPosSpeed;
+    int16_t * pPosRange;
+} MCT_Handle_t;
+
+__weak bool UI_SetReg(UI_Handle_t *pHandle, MC_Protocol_REG_t bRegID, int32_t wValue)
+{
+    ***忽略***
+
+    case MC_PROTOCOL_REG_POSITION_KP:
+    {
+        PID_SetKP(pMCT->pPIDPosition,(int16_t)wValue);
+    }
+    break;
+    case MC_PROTOCOL_REG_POSITION_KI:
+    {
+        PID_SetKI(pMCT->pPIDPosition,(int16_t)wValue);
+    }
+    break;
+    case MC_PROTOCOL_REG_POSITION_KD:
+    {
+        PID_SetKD(pMCT->pPIDPosition,(int16_t)wValue);
+    }
+    break;
+    
+    case MC_PROTOCOL_REG_TARGET_POSITION:
+    {
+        *(pMCT->pPosInit) = (int16_t)wValue;
+    }
+    break;
+    case MC_PROTOCOL_REG_MOVE_DURATION:
+    {
+        *(pMCT->pPosRange) = (int16_t)wValue;
+    }
+    break;
+    case MC_PROTOCOL_REG_CURRENT_POSITION:
+    {
+        *(pMCT->pPosSpeed) = (int16_t)wValue;
+    }
+    break;
+    
+    default:
+        retVal = false;
+        break;
+    }
+
+    return retVal;
+}
+
+#define PID_DIV 256
+#define PID_LIMMAX 32000
+PID_Handle_t PIDPosHandle_M1 =
+{
+    .wUpperIntegralLimit = 10000,               //积分上限
+    .wLowerIntegralLimit = -10000,              //积分下限
+    .hUpperOutputLimit   = (int16_t)PID_LIMMAX, //最大输出值限制
+    .hLowerOutputLimit   = -(int16_t)PID_LIMMAX,//最小输出值限制
+
+    .hDefKpGain          = 1800,                 //比例增益
+    .hDefKiGain          = 800,                  //积分增益
+    .hDefKdGain          = 2500,                  //微分增益
+
+    .hKpDivisor          = PID_DIV,
+    .hKiDivisor          = PID_DIV,
+    .hKdDivisor          = PID_DIV,
+
+    .hKpDivisorPOW2      = LOG2(PID_DIV),//右移倍率
+    .hKiDivisorPOW2      = LOG2(PID_DIV),
+    .hKdDivisorPOW2      = LOG2(PID_DIV),
+};
+
+volatile int16_t pPosInit = 0;
+volatile int16_t pPosSpeed = 5;
+volatile int16_t pPosRange = 1600;
