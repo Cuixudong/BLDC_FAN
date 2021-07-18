@@ -1,0 +1,3 @@
+#!/bin/bash
+echo umount sdCard ok...
+umount -t vfat /dev/mmcblkop1

@@ -1,0 +1,6 @@
+<RCC>
+    <qresource lang="chinese" prefix="/">
+        <file>icon/bilibilihead.png</file>
+        <file>icon/qtbg.jpg</file>
+    </qresource>
+</RCC>
